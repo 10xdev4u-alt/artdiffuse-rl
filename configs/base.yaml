@@ -1,0 +1,35 @@
+# Training configuration for ArtDiffuse-RL
+
+model:
+  in_ch: 3
+  out_ch: 3
+  ch: 128
+  ch_mult: [1, 2, 4, 4]
+  num_res_blocks: 2
+  dropout: 0.1
+  timesteps: 1000
+  beta_start: 0.0001
+  beta_end: 0.02
+
+training:
+  epochs: 100
+  batch_size: 128
+  lr: 0.0001
+  weight_decay: 0.01
+  ema_decay: 0.9999
+  amp: true
+  grad_accum: 1
+  save_every: 5000
+  log_every: 100
+  max_steps: null
+
+rl:
+  rl_epochs: 10
+  rl_lr: 0.00001
+  dpo_beta: 0.1
+  rl_save_every: 1000
+
+data:
+  dataset: midjourney
+  image_size: 64
+  num_workers: 4
