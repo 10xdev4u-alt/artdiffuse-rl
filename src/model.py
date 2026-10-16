@@ -64,6 +64,29 @@ class AttentionBlock(nn.Module):
         return x + self.proj(out)
 
 
+class Downsample(nn.Module):
+    """Downsampling with stride-2 convolution."""
+
+    def __init__(self, ch: int):
+        super().__init__()
+        self.conv = nn.Conv2d(ch, ch, 3, stride=2, padding=1)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.conv(x)
+
+
+class Upsample(nn.Module):
+    """Upsampling with nearest neighbor + convolution."""
+
+    def __init__(self, ch: int):
+        super().__init__()
+        self.conv = nn.Conv2d(ch, ch, 3, padding=1)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = F.interpolate(x, scale_factor=2, mode="nearest")
+        return self.conv(x)
+
+
 class UNet(nn.Module):
     """U-Net denoising network for DDPM.
 
@@ -87,6 +110,8 @@ class UNet(nn.Module):
     ):
         super().__init__()
         self.time_dim = ch * 4
+        self.num_res_blocks = num_res_blocks
+        self.ch_mult = ch_mult
         self.time_mlp = nn.Sequential(
             SinusoidalTimeEmbedding(ch),
             nn.Linear(ch, self.time_dim),
@@ -96,37 +121,40 @@ class UNet(nn.Module):
 
         self.conv_in = nn.Conv2d(in_ch, ch, 3, padding=1)
 
-        # Downsampling path
+        # Build downsampling path
         self.down_blocks = nn.ModuleList()
         self.down_samples = nn.ModuleList()
         curr_ch = ch
         for i, mult in enumerate(ch_mult):
-            out_ch = ch * mult
+            level_ch = ch * mult
             for _ in range(num_res_blocks):
-                self.down_blocks.append(ResBlock(curr_ch, out_ch, self.time_dim, dropout))
-                curr_ch = out_ch
+                self.down_blocks.append(ResBlock(curr_ch, level_ch, self.time_dim, dropout))
+                curr_ch = level_ch
             if i < len(ch_mult) - 1:
-                self.down_samples.append(
-                    nn.Conv2d(curr_ch, curr_ch, 3, stride=2, padding=1)
-                )
+                self.down_samples.append(Downsample(curr_ch))
 
         # Middle blocks
         self.mid_block1 = ResBlock(curr_ch, curr_ch, self.time_dim, dropout)
         self.mid_attn = AttentionBlock(curr_ch)
         self.mid_block2 = ResBlock(curr_ch, curr_ch, self.time_dim, dropout)
 
-        # Upsampling path
+        # Build upsampling path
         self.up_blocks = nn.ModuleList()
         self.up_samples = nn.ModuleList()
         for i, mult in reversed(list(enumerate(ch_mult))):
-            out_ch = ch * mult
-            for _ in range(num_res_blocks + 1):
+            level_ch = ch * mult
+            for _ in range(num_res_blocks):
                 self.up_blocks.append(
-                    ResBlock(curr_ch + out_ch, out_ch, self.time_dim, dropout)
+                    ResBlock(curr_ch + level_ch, level_ch, self.time_dim, dropout)
                 )
-                curr_ch = out_ch
+                curr_ch = level_ch
+            # One block without skip connection
+            self.up_blocks.append(
+                ResBlock(curr_ch, level_ch, self.time_dim, dropout)
+            )
+            curr_ch = level_ch
             if i > 0:
-                self.up_samples.append(nn.Conv2d(curr_ch, curr_ch, 3, padding=1))
+                self.up_samples.append(Upsample(curr_ch))
 
         self.conv_out = nn.Sequential(
             nn.GroupNorm(8, curr_ch),
@@ -138,30 +166,44 @@ class UNet(nn.Module):
         t_emb = self.time_mlp(t)
         h = self.conv_in(x)
 
-        # Downsampling
+        # Downsampling - collect skips
         skips = []
-        sample_idx = 0
-        for i, block in enumerate(self.down_blocks):
-            h = block(h, t_emb)
-            skips.append(h)
-            if (i + 1) % 2 == 0 and sample_idx < len(self.down_samples):
-                h = self.down_samples[sample_idx](h)
-                sample_idx += 1
+        block_idx = 0
+        for i in range(len(self.ch_mult)):
+            for _ in range(self.num_res_blocks):
+                h = self.down_blocks[block_idx](h, t_emb)
+                skips.append(h)
+                block_idx += 1
+            if i < len(self.ch_mult) - 1:
+                h = self.down_samples[i](h)
 
         # Middle
         h = self.mid_block1(h, t_emb)
         h = self.mid_attn(h)
         h = self.mid_block2(h, t_emb)
 
-        # Upsampling
+        # Upsampling - use skips
         up_idx = 0
-        for i, block in enumerate(self.up_blocks):
-            h = torch.cat([h, skips.pop()], dim=1)
-            h = block(h, t_emb)
-            if (i + 1) % 3 == 0 and up_idx < len(self.up_samples):
-                h = F.interpolate(h, scale_factor=2, mode="nearest")
-                h = self.up_samples[up_idx](h)
+        for i, sample in enumerate(self.up_samples):
+            for _ in range(self.num_res_blocks):
+                skip = skips.pop()
+                h = torch.cat([h, skip], dim=1)
+                h = self.up_blocks[up_idx](h, t_emb)
                 up_idx += 1
+            # One block without skip
+            h = self.up_blocks[up_idx](h, t_emb)
+            up_idx += 1
+            h = sample(h)
+
+        # Final level (no upsampling)
+        for _ in range(self.num_res_blocks):
+            skip = skips.pop()
+            h = torch.cat([h, skip], dim=1)
+            h = self.up_blocks[up_idx](h, t_emb)
+            up_idx += 1
+        # One block without skip
+        h = self.up_blocks[up_idx](h, t_emb)
+        up_idx += 1
 
         return self.conv_out(h)
 

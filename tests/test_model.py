@@ -1,5 +1,9 @@
 """Tests for the diffusion model architecture."""
 
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+
 import torch
 import pytest
 from model import UNet, DDPM, SinusoidalTimeEmbedding, ResBlock, AttentionBlock
