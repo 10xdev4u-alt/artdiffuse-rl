@@ -111,7 +111,7 @@ def train(
 
             # Logging
             if global_step % log_every == 0:
-                pbar.set_postfix(loss=loss.item() * grad_accum, lr=lr_now:.2e, step=global_step)
+                pbar.set_postfix(loss=loss.item() * grad_accum, lr=f'{lr_now:.2e}', step=global_step)
 
             # Save checkpoint
             if global_step % save_every == 0:

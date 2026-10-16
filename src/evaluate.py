@@ -64,7 +64,17 @@ def save_samples(images: torch.Tensor, output_dir: str, n: int = 16):
     """Save generated samples as a grid."""
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-
-    from torchvision.utils import save_image
-    save_image(images[:n], output_dir / "samples.png", nrow=4, normalize=True)
-    print(f"Saved samples to {output_dir / 'samples.png'}")
+    try:
+        from torchvision.utils import save_image
+        save_image(images[:n], output_dir / "samples.png", nrow=4, normalize=True)
+    except ImportError:
+        # Fallback: save individual images
+        import numpy as np
+        from PIL import Image
+        imgs = images[:n].cpu().numpy()
+        imgs = (imgs * 0.5 + 0.5).clip(0, 1)
+        imgs = (imgs * 255).astype(np.uint8)
+        imgs = imgs.transpose(0, 2, 3, 1)  # (N,C,H,W) -> (N,H,W,C)
+        for i, img in enumerate(imgs):
+            Image.fromarray(img).save(output_dir / f"sample_{i}.png")
+    print(f"Saved samples to {output_dir}")
