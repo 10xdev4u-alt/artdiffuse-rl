@@ -282,3 +282,51 @@ class DDPM(nn.Module):
         xt = self.q_sample(x0, t, noise)
         eps_pred = self.model(xt, t)
         return F.mse_loss(eps_pred, noise)
+
+
+class ImprovedUNet(UNet):
+    """Improved U-Net with better attention and efficiency."""
+    
+    def __init__(self, in_ch=3, out_ch=3, ch=128, ch_mult=(1,2,4,4), num_res_blocks=2, dropout=0.1):
+        super().__init__(in_ch, out_ch, ch, ch_mult, num_res_blocks, dropout)
+        # Add attention at multiple resolutions
+        self.attention_blocks = nn.ModuleList()
+        for mult in ch_mult:
+            self.attention_blocks.append(AttentionBlock(ch * mult))
+    
+    def forward(self, x, t):
+        t_emb = self.time_mlp(t)
+        h = self.conv_in(x)
+        skips = []
+        block_idx = 0
+        attn_idx = 0
+        for i in range(len(self.ch_mult)):
+            for _ in range(self.num_res_blocks):
+                h = self.down_blocks[block_idx](h, t_emb)
+                skips.append(h)
+                block_idx += 1
+            if i < len(self.ch_mult) - 1:
+                h = self.down_samples[i](h)
+                # Add attention at each resolution
+                h = self.attention_blocks[attn_idx](h)
+                attn_idx += 1
+        h = self.mid_block1(h, t_emb)
+        h = self.mid_attn(h)
+        h = self.mid_block2(h, t_emb)
+        up_idx = 0
+        for i, sample in enumerate(self.up_samples):
+            for _ in range(self.num_res_blocks):
+                skip = skips.pop()
+                h = torch.cat([h, skip], dim=1)
+                h = self.up_blocks[up_idx](h, t_emb)
+                up_idx += 1
+            h = self.up_blocks[up_idx](h, t_emb)
+            up_idx += 1
+            h = sample(h)
+        for _ in range(self.num_res_blocks):
+            skip = skips.pop()
+            h = torch.cat([h, skip], dim=1)
+            h = self.up_blocks[up_idx](h, t_emb)
+            up_idx += 1
+        h = self.up_blocks[up_idx](h, t_emb)
+        return self.conv_out(h)
