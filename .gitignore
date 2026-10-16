@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# Data
+data/raw/
+data/processed/
+*.zip
+*.tar.gz
+
+# Models
+models/checkpoints/
+*.ckpt
+*.pt
+*.pth
+*.safetensors
+
+# Results
+results/*.png
+results/*.jpg
+results/*.mp4
+results/videos/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.venv/
+venv/
+
+# Kaggle
+.kaggle/
