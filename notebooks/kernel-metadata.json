@@ -1,6 +1,6 @@
 {
-  "id": "jprinceraj/artdiffuse-rl-v3",
-  "title": "ArtDiffuse-RL v3",
+  "id": "jprinceraj/artdiffuse-rl-v4",
+  "title": "ArtDiffuse-RL v4",
   "code_file": "train_kaggle.ipynb",
   "language": "python",
   "kernel_type": "notebook",
